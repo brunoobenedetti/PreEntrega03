@@ -1,5 +1,9 @@
 import CartsService from "../services/carts.services.js";
 import { Exception } from "../helpers/utils.js";
+import UsersService from "../services/users.services.js";
+import ProductsController from "./products.controller.js";
+import TicketController from "./ticket.controller.js";
+import { getNewId } from "../helpers/utils.js";
 export default class CartController {
 
     static async get(filter = {}) {
@@ -27,6 +31,12 @@ export default class CartController {
     static async addProductToCart(cartId, productId, quantity) {
         try {
             // console.log('entra al controlador');
+            // console.log("cartId", cartId)
+            const user = await UsersService.findAll({ cartId })
+
+            if (user[0].rol === 'admin') {
+                throw new Exception('El admin no puede agregar productos al carrito', 401)
+            }
             const cart = await CartController.getById(cartId)
             // console.log("quantity", quantity)
             // const cart = await CartModel.findById(cartId);
@@ -71,16 +81,18 @@ export default class CartController {
 
 
             if (existingProductIndex !== -1) {
-                console.log("existingProduct", existingProductIndex);
+                // console.log("existingProduct", existingProductIndex);
                 cart.products.splice(existingProductIndex, 1)
+                // console.log("cart.products", cart.products)
+                // const updatedCart = await CartsService.updateById(cid, cart)
+                const updatedCart = await CartsService.updateById(cid, cart.products)
+
+                return updatedCart;
             } else {
                 throw new Exception('No se encontro el producto en el carrito', 404)
             }
 
 
-            const updatedCart = await CartsService.updateById(cid, cart.products)
-
-            return updatedCart;
         } catch (error) {
             throw new Exception("Error al eliminar el producto del carrito", 500)
         }
@@ -154,5 +166,43 @@ export default class CartController {
             throw new Exception('Error al actualizar los productos del carrito', 500)
         }
     }
+    static async createPurchase(cid) {
+        const user = await UsersService.findAll({ cartId: cid });
+        let amount = 0;
 
+        if (user.length > 0) {
+            let cart = await CartsService.findById({ _id: user[0].cartId });
+            let productsWithoutStock = [];
+            let productsWithStock = [];
+            let updatedProducts;
+
+            for (const [index, prod] of cart.products.entries()) {
+                if (prod.productId.stock < prod.quantity) {
+                    console.log('Stock insuficiente');
+                    productsWithoutStock.push({ _id: prod.productId._id, quantity: prod.quantity });
+                } else {
+                    console.log('Hay stock');
+                    productsWithStock.push({ _id: prod.productId._id, quantity: prod.quantity });
+                    updatedProducts = await ProductsController.updateById(prod.productId._id, {
+                        stock: prod.productId.stock - prod.quantity,
+                    });
+
+                    amount += prod.productId.price * prod.quantity;
+
+                    // Remove product from cart (without worrying about concurrency)
+                    cart = await CartController.removeProductFromCart(cid, prod.productId._id);
+                }
+            }
+
+            // Generate ticket after processing all products
+            const ticket = await TicketController.create({
+                code: getNewId(),
+                purchase_datetime: Date.now(),
+                amount,
+                purchaser: user[0].email,
+            });
+
+            return { user, productsWithoutStock, cart, ticket };
+        }
+    }
 }

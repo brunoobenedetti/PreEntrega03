@@ -1,4 +1,3 @@
-// socket.js
 import { initDb } from './db/mongodb.js'
 import { Server } from 'socket.io';
 // import mongoose from 'mongoose';
@@ -11,6 +10,8 @@ import { dirname } from 'path';
 // import CartManager from './dao/CartManager.js';
 // import MessageManager from './dao/MessageManager.js';
 import MessageController from './controllers/message.controller.js';
+
+import { verifyToken } from './helpers/utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -28,6 +29,9 @@ export const init = async (httpServer) => {
 
     io.on('connection', async (socketClient) => {
 
+        // const token = socketClient.handshake.headers.authorization.split(' ')[1];
+
+        // console.log("token", token)
 
         console.log(`Se ha conectado un nuevo cliente 🎉 (${socketClient.id})`);
 
@@ -108,6 +112,13 @@ export const init = async (httpServer) => {
             let carts = await CartController.get()
             io.emit('listCarts', carts)
         })
+
+        socketClient.on('cartPurchase', async (cartId) => {
+            await CartController.createPurchase(cartId)
+            let carts = await CartController.get()
+            io.emit('listCarts', carts)
+        })
+
         socketClient.on('disconnect', () => {
             console.log(`Se ha desconectado el cliente con id ${socketClient.id}`)
         })
